@@ -1,0 +1,4 @@
+edition = "2021" # required for leptosfmt
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"
+wrap_comments = true

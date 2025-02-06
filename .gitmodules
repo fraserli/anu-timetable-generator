@@ -1,0 +1,4 @@
+[submodule "anutimetable"]
+	path = anutimetable
+	url = https://github.com/pl4nty/anutimetable.git
+	shallow = true
