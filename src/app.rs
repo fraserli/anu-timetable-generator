@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
 use leptos::prelude::*;
 
 use crate::search::search;
-use crate::timetable::{Activity, Class, Course};
+use crate::timetable::Course;
 
 type ActivitySelection = Vec<RwSignal<bool>>;
 
@@ -174,72 +172,41 @@ fn SearchResults(courses: ReadSignal<Vec<(Course, ActivitySelection)>>) -> impl 
     let result = move || {
         let courses = courses.read();
 
-        let (courses, activities): (Vec<&Course>, Vec<&Activity>) = {
-            let mut tmp: Vec<(&Course, &Activity)> =
-                courses
-                    .iter()
-                    .flat_map(|(course, selection)| {
-                        course.activities.iter().zip(selection.iter()).filter_map(
-                            move |(activity, sel)| sel.get().then_some((course, activity)),
-                        )
-                    })
-                    .collect();
+        let courses: Vec<(&Course, Vec<bool>)> = courses
+            .iter()
+            .map(|(course, selected)| (course, selected.iter().map(|s| s.get()).collect()))
+            .collect();
 
-            // Sorting the activities by the number of options reduces backtracking and
-            // makes the search run much faster.
-            tmp.sort_by_key(|(_, activity)| activity.classes.len());
-            tmp.into_iter().unzip()
-        };
+        let (timetables, searched, total) = search(&courses);
 
-        if activities.is_empty() {
-            "No courses selected".into_any()
+        if timetables.is_empty() {
+            ().into_any()
         } else {
-            let combinations: usize = activities.iter().map(|a| a.classes.len()).product();
-
-            let (classes, searched, score) = search(&activities);
-
-            let mut results: BTreeMap<String, Vec<(&str, &Class)>> = courses
-                .iter()
-                .map(|course| (course.code.clone(), Vec::new()))
-                .collect();
-
-            courses
+            let timetables_view = timetables
                 .into_iter()
-                .zip(activities.iter())
-                .zip(classes.iter())
-                .for_each(|((course, activity), class)| {
-                    results
-                        .get_mut(&course.code)
-                        .unwrap()
-                        .push((&activity.name, class));
-                });
-
-            let query: String = results
-                .iter()
-                .fold(String::new(), |mut acc, (code, classes)| {
-                    use std::fmt::Write;
-                    let _ = write!(
-                        acc,
-                        "&{}={}",
-                        code,
-                        classes
-                            .iter()
-                            .map(|(activity, class)| format!("{}{}", activity, class.occurrence))
-                            .collect::<Vec<String>>()
-                            .join(",")
-                    );
-                    acc
-                });
-
-            let url = format!("https://timetable.cssa.club/?y=2025&s=S1{}", query);
+                .map(|timetable| {
+                    let url = timetable.url("2025", "S1");
+                    view! {
+                        <blockquote>
+                            <b>"Timetable #" {timetable.number}</b>
+                            " ("
+                            <a target="_blank" rel="noreferrer noopener" href={url}>
+                                "Open in CSSA Timetable 🚀"
+                            </a>
+                            ")"
+                            <br />
+                            "Score: "
+                            {timetable.score}
+                            <br />
+                        </blockquote>
+                    }
+                })
+                .collect_view();
 
             view! {
-                <div>{format!("Searched through {searched} / {combinations} combinations")}</div>
-                <div>"Score: " {score}</div>
                 <div>
-                    <a href={url} target="_blank" rel="noreferrer noopener">
-                        "Open on CSSA Timetable"
-                    </a>
+                    <p>"Considered " {searched} "/" {total} " combinations."</p>
+                    {timetables_view}
                 </div>
             }
             .into_any()

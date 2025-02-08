@@ -24,6 +24,12 @@ pub struct Class {
     pub end: u16,
 }
 
+pub struct Timetable<'a> {
+    pub number: usize,
+    pub score: i64,
+    pub courses: Vec<(String, Vec<(String, &'a Class)>)>,
+}
+
 static INDEX: LazyLock<Vec<(String, String)>> = LazyLock::new(|| {
     // INDEX_FILE is set by the build script
     const INDEX_BIN: &[u8] = include_bytes!(env!("INDEX_FILE"));
@@ -44,4 +50,27 @@ pub async fn get_courses(session: &str) -> Vec<Course> {
     let resp = Request::get(path).send().await.unwrap();
     let data = resp.binary().await.unwrap();
     postcard::from_bytes(&data).unwrap()
+}
+
+impl Timetable<'_> {
+    pub fn url(&self, year: &str, session: &str) -> String {
+        let query = self
+            .courses
+            .iter()
+            .fold(String::new(), |mut acc: String, (code, classes)| {
+                acc.push('&');
+                acc.push_str(code);
+                acc.push('=');
+                acc.push_str(
+                    &classes
+                        .iter()
+                        .map(|(activity, class)| format!("{}{}", activity, class.occurrence))
+                        .collect::<Vec<String>>()
+                        .join(","),
+                );
+                acc
+            });
+
+        format!("https://timetable.cssa.club/?y={year}&s={session}{query}")
+    }
 }

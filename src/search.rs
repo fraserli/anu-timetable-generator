@@ -1,43 +1,103 @@
-use crate::timetable::{Activity, Class};
+use std::collections::BinaryHeap;
 
-// TODO: add support for returning multiple results
-pub fn search<'a>(activities: &'a [&'a Activity]) -> (Vec<&'a Class>, usize, i64) {
+use crate::timetable::{Activity, Class, Course, Timetable};
+
+struct SearchResult<'a> {
+    number: usize,
+    classes: Vec<&'a Class>,
+    score: i64,
+}
+
+pub fn search<'a>(courses: &[(&'a Course, Vec<bool>)]) -> (Vec<Timetable<'a>>, usize, usize) {
+    let mut activities: Vec<(&Activity, &str)> = courses
+        .iter()
+        .flat_map(|(course, selected)| {
+            course
+                .activities
+                .iter()
+                .zip(selected.iter())
+                .filter(|(_, is_selected)| **is_selected)
+                .map(|(activity, _)| (activity, course.code.as_ref()))
+        })
+        .collect();
+
+    if activities.is_empty() {
+        return (Vec::new(), 0, 0);
+    }
+
+    // Sorting the activities by the number of options reduces backtracking and
+    // makes the search run much faster.
+    activities.sort_by_key(|(activity, _)| activity.classes.len());
+
+    let (activities, course_codes): (Vec<&Activity>, Vec<&str>) = activities.into_iter().unzip();
+
     // Find optimal classes using recursive backtracking.
     fn f<'a>(
         activities: &[&'a Activity],
         current_classes: &mut Vec<&'a Class>,
+        results: &mut BinaryHeap<SearchResult<'a>>,
         searched: &mut usize,
-        result: &mut Option<(i64, Vec<&'a Class>)>,
     ) {
         let score = eval(current_classes);
 
-        // TODO: allow user configuration of pruning aggressiveness
-        if result.as_ref().is_some_and(|&(s, _)| s > score + 25) {
+        if results.peek().is_some_and(|r| r.score > score + 10) {
             return;
         }
 
         if current_classes.len() < activities.len() {
             for class in activities[current_classes.len()].classes.iter() {
                 current_classes.push(class);
-                f(activities, current_classes, searched, result);
+                f(activities, current_classes, results, searched);
                 current_classes.pop();
             }
         } else {
-            if result.as_ref().is_none_or(|&(s, _)| score > s) {
-                let _ = result.insert((score, current_classes.to_owned()));
-            }
+            results.push(SearchResult {
+                number: *searched,
+                classes: current_classes.to_owned(),
+                score,
+            });
             *searched += 1;
+            if results.len() > 25 {
+                results.pop();
+            }
         }
     }
 
     let mut searched = 0;
-    let mut result = None;
+    let mut results = BinaryHeap::new();
 
-    f(activities, &mut Vec::new(), &mut searched, &mut result);
+    f(&activities, &mut Vec::new(), &mut results, &mut searched);
 
-    let (score, classes) = result.unwrap_or_default();
+    let timetables = results.into_sorted_vec().into_iter().map(|result| {
+        let mut classes: Vec<(&Class, (&&str, &&Activity))> = result
+            .classes
+            .into_iter()
+            .zip(course_codes.iter().zip(activities.iter()))
+            .collect();
+        classes.sort_by(|a, b| a.1 .1.name.cmp(&b.1 .1.name));
 
-    (classes, searched, score)
+        Timetable {
+            score: result.score,
+            number: result.number,
+            courses: courses
+                .iter()
+                .map(|(course, _)| {
+                    let classes = classes
+                        .iter()
+                        .filter_map(|(class, (code, activity))| {
+                            (course.code == **code).then_some((activity.name.clone(), *class))
+                        })
+                        .collect();
+
+                    (course.code.to_owned(), classes)
+                })
+                .collect(),
+        }
+    });
+
+    let total_combinations: usize = activities.iter().map(|a| a.classes.len()).product();
+
+    (timetables.collect(), searched, total_combinations)
 }
 
 // TODO: allow user customisation of the constants
@@ -71,4 +131,24 @@ fn eval(classes: &[&Class]) -> i64 {
     }
 
     score
+}
+
+impl Ord for SearchResult<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.score.cmp(&self.score)
+    }
+}
+
+impl PartialOrd for SearchResult<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for SearchResult<'_> {}
+
+impl PartialEq for SearchResult<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.score == other.score
+    }
 }
