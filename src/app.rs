@@ -185,7 +185,7 @@ fn SearchResults(courses: ReadSignal<Vec<(Course, ActivitySelection)>>) -> impl 
             let timetables_view = timetables
                 .into_iter()
                 .map(|timetable| {
-                    let url = timetable.url("2025", "S1");
+                    let url = timetable.url("2026", "S1");
                     view! {
                         <blockquote>
                             <b>"Timetable #" {timetable.number}</b>
